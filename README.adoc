@@ -1,0 +1,5 @@
+# gflux
+The Integration and Data Flow Engine
+
+## Design and Architecture
+See link:docs/design-arch.adoc[Design And Architecture]
