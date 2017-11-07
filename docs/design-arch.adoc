@@ -1,0 +1,82 @@
+== The Design and Architecture of gflux
+:sectnums:
+:toc:
+:description: Describes the architecture of gflux engine, its internal design model, its DSL and other facets
+:keywords: integration etl
+
+== Overview
+
+gflux is an engine that processes integration flows. These flows may be message driven flows (EIP) or data-driven flows (ETL). The primary characteristic of an integration flow unlike a generic workflow is that they are of short lifetime and interact with parties that are systems (not humans). gflux supports flows that interfact with a variety of communication and transport protocols and involve processing steps such as mapping (payload/data transformation), filtering, routing, split, merge. gflux supports real-time processing of data.
+
+== Flow DSL
+
+The native DSL of gflux is in XML to allow compatibility with a wide variety of tools and libraries. The XML is carefully designed for human consumption and also possesses a schema. The DSL can be extended via custom XML elements.
+
+=== Flow DSL Examples
+
+.File2File.xml
+[source,xml]
+----
+<flow name="File2File" description="File to File move on confirmation">
+ <file-endpoint name="inboxDir" uri="file://data/inbox" />
+ <file-endpoint name="confirmDir" uri="file://data/.done" />
+ <file-endpoint name="outboxDir" uri="ftp://data/outbox" />
+ <route>
+    <source name="inboxSource" from-endpoint="orders" idempotent="true" confirm-endpoint="confirmDir" />
+    <sink name="outboxSink" to-endpoint="outboxDir"  />
+ </route>
+</flow>
+----
+
+A gflux flow is realized as a _directed graph_. Elements such as `source`, `sink`, `router`, etc are realized as _vertexes_ in the graph. A `route` element represents a _path_ in the flow graph. Messages must enter the flow graph using one or more sources and exit via one or more sinks. Messages must flow from vertex to vertex via a route. Internally, the vertexes pass messages to each other using channels. The glux engine automatically connects the elements of a route using channels. Policies such as retry, etc can be specified on routes.
+
+Though the above appears overfly verbose compared to Camels [source-java]`from("file:data/inbox").to("file:data/outbox")`, it achieves a clean separation between the concepts of an _endpoint_, _source_, _sink_ and _route_. The file endpoints can be made to share a common configuration using [source-xml]`<file-endpoint-config>`. Disambiguating such concepts leads to more scalable and readable markup when the number of elements and complexity increases.
+
+NOTE: The `file-endpoint` supports all file orieented protocols - ie, local fs, nfs, ftp, sftp. A nested element `nfs-config`, `ftp-config`, etc can be used for giving configuration info if the `uri` is not sufficient. username/password aliases can be specified to lookup users and passwords from the secure store. 
+
+For convenience in writing small integration flows we also have elements such as [source-xml]`<file-source>` that represents a source which is a file endpoint.
+
+.SimplifiedFile2File.xml
+[source,xml]
+----
+<flow name="SimplifiedFile2File" description="File to File and move on confirmation">
+ <route>
+   <file-source name="inboxSource" dir="~/inbox" glob="*.txt" confirm-dir="~/.done" />
+   <file-sink name="outboxSink" dir="~/outbox/{{id}}.txt"  />
+ </route>
+</flow>
+----
+
+.RouteOrderToShipperWithInvoice.xml
+[source,xml]
+----
+<flow name="ReqRespWithMapping">
+  <http-server-endpoint name="shipService" uri="https://localhost:9001/orders/{{ordername}}" />
+  <http-client-endpoint name="shipper1" uri="https://shipper1" />
+  <http-client-endpoint name="shipper2" uri="https://shipper2" />
+  <route name="inbound" from-endpoint="shipService" exchange="InOut">
+    <router>
+      <when>
+        <header-match expr="{{OrderCategory == 'Furniture'}}" />
+        <sink to-endpoint="shipper2" />
+        <!-- in case there was no mapping necessary this could have been a sink element -->
+      </when>
+    </router>
+  </route>
+
+</flow>
+----
+NOTE: Expression language is taken from pongo2 https://github.com/flosch/pongo2/blob/master/template_tests/expressions.tpl
+
+
+.ReqRespWithMapping.xml
+[source,xml]
+----
+<flow name="ReqRespWithMapping">
+  <http-server-endpoint id="easyTaxFiling" uri="https://localhost:9001/orders/${orderId}" />
+  <http-client-endpoint id="govtTaxFileSystem" uri="https://complexgovtsystem" />
+  <source from-endpoint="easyTaxFiling" exchange="" />
+</flow>
+----
+
+http server endpoint 
